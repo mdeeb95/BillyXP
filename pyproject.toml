@@ -1,0 +1,30 @@
+[project]
+name = "xpwhat"
+version = "0.1.0"
+description = "Forward simulator + route optimizer for WoW Classic Era leveling (Teldrassil vertical slice)"
+readme = "README.md"
+requires-python = ">=3.12"
+# Exactly the dependency set fixed in CLAUDE.md. Ask before adding anything else.
+dependencies = [
+    "numpy",
+    "scipy",
+    "pandas",
+    "networkx",
+    "matplotlib",
+    "pydantic",
+    "pytest",
+]
+
+[dependency-groups]
+# Tooling only (not a runtime dep). Pyright strict is a CLAUDE.md hard rule.
+dev = [
+    "pyright",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# The project is a set of scripts/packages (etl, sim, router, eval, viz), not a single
+# importable distribution. Tell uv not to build/install it as a package.
+[tool.uv]
+package = false

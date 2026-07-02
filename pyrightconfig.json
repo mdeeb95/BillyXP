@@ -1,0 +1,9 @@
+{
+  "typeCheckingMode": "strict",
+  "pythonVersion": "3.12",
+  "venvPath": ".",
+  "venv": ".venv",
+  "include": ["etl", "sim", "router", "eval", "viz", "tests"],
+  "exclude": ["**/__pycache__", ".venv", "data", "out"],
+  "reportMissingTypeStubs": false
+}

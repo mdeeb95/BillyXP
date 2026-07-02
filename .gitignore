@@ -1,0 +1,15 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# XPWhat data + generated artifacts (DESIGN §4; GPL-lineage data stays private, DESIGN §13)
+data/raw/
+data/compiled/
+out/
