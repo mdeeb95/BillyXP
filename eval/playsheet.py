@@ -31,7 +31,17 @@ ROUTE = ROOT / "eval" / "routes" / "shadowglen_hunter.dsl"
 RAW_DB = ROOT / "data" / "raw" / "sqlite-dump" / "mangos.sqlite"
 OUT_MD = ROOT / "out" / "playsheet_shadowglen_hunter.md"
 CSV = ROOT / "eval" / "runs" / "template.csv"
+EPILOGUE_CSV = ROOT / "eval" / "runs" / "epilogue_template.csv"
 MAPPROJ = ROOT / "eval" / "teldrassil_mapproj.json"
+
+# Epilogue (bow-experiment) capture fields — the single source of truth shared by the CSV template
+# and the playsheet's epilogue LOG prompts, so the sheet can never ask for a field the log lacks.
+EP_ARM1 = [f"arm1_kill{i:02d}_s" for i in range(1, 11)]
+EP_ARM2 = [f"arm2_kill{i:02d}_s" for i in range(1, 11)]
+EP_BASELINE = ["arrow_type", "baseline_played_hms", "gold_before_copper"]
+EP_BUY = ["price_paid_copper"]
+EP_AFTER = ["gold_after_copper", "after_played_hms"]
+EPILOGUE_FIELDS = EP_BASELINE + EP_ARM1 + EP_BUY + EP_ARM2 + EP_AFTER
 
 # The frozen M1 route (eval/PREDICTIONS.md). The playsheet only renders THIS route.
 FROZEN_ROUTE_SHA = "321e3c3547a3e545c45d6d670fd249906a9201d36f87279e2a09b9accdbb78ab"
@@ -339,14 +349,19 @@ def _epilogue(names: Names, world: World, end_level: int,
         "are both legible).",
         "",
         "1. **Baseline:** screenshot `/played` and your gold (bags open).",
+        f"   - `LOG -> eval/runs/epilogue_template.csv: {', '.join(EP_BASELINE)}`",
         f"2. **10 timed kills** on {mob_txt}, single pulls only. Record each kill time.",
+        f"   - `LOG -> epilogue_template.csv: {EP_ARM1[0]} .. {EP_ARM1[-1]}`",
         f"3. **Buy** the **{bow['item']}** (item {bow['item_id']}) from **{bow['vendor']}** "
         f"(NPC {bow['vendor_id']}, world {float(bow['x']):.0f},{float(bow['y']):.0f}) - "
         f"{price_str(int(bow['price_c']))}, requires level {bow['req']}, "
         f"~{float(bow['dps']):.2f} weapon dps. Equip it.",
+        f"   - `LOG -> epilogue_template.csv: {', '.join(EP_BUY)}`",
         f"4. **10 timed kills** on the same {mob_txt}, single pulls only, same arrow type. Record "
         "each kill time.",
+        f"   - `LOG -> epilogue_template.csv: {EP_ARM2[0]} .. {EP_ARM2[-1]}`",
         "5. **After:** screenshot `/played` and your gold (bags open).",
+        f"   - `LOG -> epilogue_template.csv: {', '.join(EP_AFTER)}`",
         "", "_Deferred bigger jump: Laminated Recurve Bow (item 2507) is level-11 gated._", "",
     ]
     return out
@@ -423,8 +438,15 @@ def main() -> None:
     header = "segment,quests,expected_level,played_hms,gold_copper,deaths,drinks,notes"
     body = "\n".join(",".join(_csv(c) for c in row) for row in csv_rows)
     CSV.write_text("\n".join(comment) + "\n" + header + "\n" + body + "\n", encoding="utf-8")
+    # Epilogue capture template (bow experiment) — key/value, one field per row, blank to fill.
+    # Field list is EPILOGUE_FIELDS, the same source the playsheet's epilogue LOG prompts cite.
+    ep = ["# Bow-experiment capture — fill 'value'. Fields cited by the playsheet epilogue LOG "
+          "prompts (single source of truth).", "field,value"]
+    ep += [f"{f}," for f in EPILOGUE_FIELDS]
+    EPILOGUE_CSV.write_text("\n".join(ep) + "\n", encoding="utf-8")
     print(f"playsheet: wrote {OUT_MD} ({len(csv_rows)} segments)")
     print(f"playsheet: wrote {CSV}")
+    print(f"playsheet: wrote {EPILOGUE_CSV} ({len(EPILOGUE_FIELDS)} fields)")
 
 
 def _csv(cell: str) -> str:

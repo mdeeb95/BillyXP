@@ -7,8 +7,9 @@ switch ($Target) {
     "validate"  { uv run python -m etl.validate }
     "viz"       { uv run python -m viz.spawn_map }
     "backtest"  { uv run python -m eval.backtest }
+    "verify-freeze" { uv run python -m eval.verify_freeze }
     "test"      { uv run pytest }
     "typecheck" { uv run pyright }
     "all"       { uv run python -m etl.build; uv run python -m etl.validate; uv run python -m viz.spawn_map }
-    default     { Write-Error "Unknown target: $Target (etl|validate|viz|backtest|test|typecheck|all)"; exit 1 }
+    default     { Write-Error "Unknown target: $Target (etl|validate|viz|backtest|verify-freeze|test|typecheck|all)"; exit 1 }
 }
