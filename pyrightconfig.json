@@ -5,5 +5,12 @@
   "venv": ".venv",
   "include": ["etl", "sim", "router", "eval", "viz", "tests"],
   "exclude": ["**/__pycache__", ".venv", "data", "out"],
-  "reportMissingTypeStubs": false
+
+  "reportMissingTypeStubs": false,
+
+  "reportUnknownMemberType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownParameterType": false,
+  "reportUnknownLambdaType": false
 }
