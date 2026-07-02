@@ -221,13 +221,28 @@ State: ordered atom sequence + WORK fractions. Moves: swap, relocate-block, spli
 |---|---|---|
 | M0 | ETL → world.sqlite + validation report + spawn/POI map plot | quest count sane (~35–45 incl. Shadowglen); zero orphan objectives/areas; every giver & turn-in has a POI; plot looks like Teldrassil |
 | M1 | Engine + **hand-written Shadowglen route (1–~6) in DSL** | timeline renders end-to-end; predicted duration within ±30% of a reference timing (VOD or own run) |
+<!-- M1 deviation (approved): the reference route runs Shadowglen + the first Dolanaar tier and
+     reaches ~L7, not L6. "1–~6" was scope shorthand; the endpoint is whatever the route covers,
+     since the reference timing is a real playthrough of that exact route. See TODO.md M1 scope
+     note and eval/PREDICTIONS.md. -->
+
 | M2 | Combat model v1 + sensitivity report | plot of predicted zone time vs starting weapon DPS is smooth and monotone; TRAIN and reward-choice bumps visible as EDPS steps in timeline |
 | M3 | Task compiler + greedy seed, full zone | feasible 1→11 route end-to-end; total time in a plausible band vs references |
 | M4 | SA router | ≥10% better than best greedy seed per sim; route overlay has no visual ping-ponging |
 | M5 | Ground-truth calibration run | post-fit sim error ≤15% median per segment |
 | M6 | Objective knobs | "fast" vs "HC-safe" produce visibly different routes (high-delta/high-density areas and caves avoided); write the route-diff explanation by hand — that text is the job spec for the future LLM explainer |
+| M7 | Vendor economy & upgrade detours (Teldrassil exit gate) | zero-hint "fast to 11" route buys the vendor ranged-weapon upgrade, timed feasibly against the simulated gold curve; ablating the BUY and re-simulating is slower; the sim's predicted Δtime from the purchase is consistent with the measured pre/post kill-timing experiment from the calibration run |
 
 M1 before any router work, deliberately: hand-encoding a known route forces every schema gap and missing action model to surface on a 30-minute scope.
+
+**M7 — Vendor economy & upgrade detours (exit gate for the Teldrassil slice).**
+Scope:
+- **Gold income:** quest money from the DB; expected copper/kill = coin drops + Σ(sell_price × drop_chance) over the mob's loot table, accrued at kills.
+- **Gold expenses:** training costs (trainer tables) and purchases.
+- **`BUY_UPGRADE` candidate atoms** generated from `npc_vendor × item_template` (in-zone vendor POIs, slot-upgrade filter vs projected gear, `level_req` respected).
+- **Router:** SA optional-atom include/exclude moves; gold-gate repair (insert grind-for-gold or reposition the purchase after quest income lands).
+Acceptance is **zero-hint**: the planner input is a fresh hunter + the objective "fast to 11" with no hints. PASS iff (1) the emitted route buys the vendor ranged-weapon upgrade, timed feasibly against the simulated gold curve; (2) ablating the BUY and re-simulating is slower; and (3) the sim's predicted Δtime from the purchase is consistent with the measured pre/post kill-timing experiment from the calibration run (tolerance set once that data exists).
+Known optimism: no bag-space or vendoring-loop modeling at this bracket.
 
 ## 13. Risks / known optimism
 
@@ -236,6 +251,8 @@ M1 before any router work, deliberately: hand-encoding a known route forces ever
 - **Class variance:** one class only for this slice — the class that gets replayed in M5.
 - **vmangos (1.12) vs Era deltas:** assumed negligible for Teldrassil; spot-check any suspicious quest against the Era client or Wowhead Classic.
 - **License:** GPL-lineage data; compiled DB private, no redistribution in this phase.
+- **Candidate explosion (M7+):** `BUY_UPGRADE` and other optional atoms multiply the search space. Dominance filtering — prune candidates dominated per slot / level-band — is required before multi-zone scale, else the SA state space blows up.
+- **Ranged damage = weapon + ammo (hunter):** `ranged_dps` currently models the bow/gun alone. A hunter's actual ranged output is weapon dps **plus** the equipped ammo's dps, so the combat model should eventually make `ranged_dps` a function of (weapon, ammo). This matters twice: (1) calibration — the M1 kill-timing experiment must hold ammo constant across arms (see `eval/playsheet.py` epilogue controls) or the ranged-upgrade delta is confounded; (2) the M7 economy model — ammo is a **recurring consumable expense** (unlike the one-off weapon purchase), so a correct gold curve must debit arrows over time, not just the bow at point of sale. Deferred until real ammo dps values are pulled from the DB (no ammo facts from memory).
 
 ## 14. Later phases (context only — do not build)
 

@@ -1,0 +1,76 @@
+{
+  "purpose": "Teldrassil world->zone-map affine transform for TomTom /way output",
+  "residual_gate_pct": 1.0,
+  "anchors": [
+    {
+      "entry": 2079,
+      "name": "Conservator Ilthalaine",
+      "world_xy": [
+        10328.9,
+        826.052
+      ],
+      "map_xy": null
+    },
+    {
+      "entry": 2082,
+      "name": "Gilshalan Windwalker",
+      "world_xy": [
+        10417.7,
+        871.194
+      ],
+      "map_xy": null
+    },
+    {
+      "entry": 3589,
+      "name": "Keina",
+      "world_xy": [
+        10436.7,
+        794.837
+      ],
+      "map_xy": null
+    },
+    {
+      "entry": 3596,
+      "name": "Ayanna Everstride",
+      "world_xy": [
+        10458.5,
+        827.868
+      ],
+      "map_xy": null
+    },
+    {
+      "entry": 3610,
+      "name": "Jeena Featherbow",
+      "world_xy": [
+        9821.98,
+        968.831
+      ],
+      "map_xy": null
+    },
+    {
+      "entry": 4173,
+      "name": "Landria",
+      "world_xy": [
+        9770.63,
+        2268.83
+      ],
+      "map_xy": null
+    },
+    {
+      "entry": 6736,
+      "name": "Innkeeper Keldamyr",
+      "world_xy": [
+        9802.21,
+        982.608
+      ],
+      "map_xy": null
+    }
+  ],
+  "provenance": {
+    "world_coords": "data/raw/sqlite-dump/mangos.sqlite creature.position_x/_y (map=1)",
+    "map_coords": "Questie spawn data (source file + version \u2014 cite on unblock)"
+  },
+  "status": "BLOCKED",
+  "reason": "0/5 anchors have zone-map coords. Source is Questie spawn data (wowhead ruled out: JS-rendered coords unreachable via WebFetch; browser scraping declined). Fill MAP_COORDS + QUESTIE_SOURCE in eval/mapproj.py from the cited Questie file, then rerun. TomTom /way stays gated until the fit clears the residual gate. See TODO.md.",
+  "transform": null
+}

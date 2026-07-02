@@ -1,0 +1,53 @@
+# XPWhat calibration run log — one row per playsheet segment (turn-in cluster).
+# route sha256: 321e3c3547a3e545c45d6d670fd249906a9201d36f87279e2a09b9accdbb78ab
+# segments: 24; quests (turn-ins): 26
+# segment -> quest_ids (each quest keyed to its turn-in segment; union = full route set):
+#   seg  1: 5842
+#   seg  2: 458
+#   seg  3: 456
+#   seg  4: 457
+#   seg  5: 459
+#   seg  6: 4495
+#   seg  7: 3519
+#   seg  8: 3521
+#   seg  9: 3522
+#   seg 10: 916,917
+#   seg 11: 920
+#   seg 12: 921
+#   seg 13: 928
+#   seg 14: 2159
+#   seg 15: 2438
+#   seg 16: 997
+#   seg 17: 2541
+#   seg 18: 488
+#   seg 19: 932
+#   seg 20: 918,919
+#   seg 21: 475
+#   seg 22: 476
+#   seg 23: 927
+#   seg 24: 487
+segment,quests,expected_level,played_hms,gold_copper,deaths,drinks,notes
+1,Welcome!,1,,,,,
+2,The Woodland Protector,1,,,,,
+3,The Balance of Nature,2,,,,,
+4,The Balance of Nature,3,,,,,
+5,The Woodland Protector,3,,,,,
+6,A Good Friend,4,,,,,
+7,A Friend in Need,4,,,,,
+8,Iverron's Antidote,4,,,,,
+9,Iverron's Antidote,4,,,,,
+10,"Webwood Venom, Webwood Egg",5,,,,,
+11,Tenaron's Summons,5,,,,,
+12,Crown of the Earth,5,,,,,
+13,Crown of the Earth,5,,,,,
+14,Dolanaar Delivery,5,,,,,
+15,The Emerald Dreamcatcher,5,,,,,
+16,Denalan's Earth,5,,,,,
+17,The Sleeping Druid,6,,,,,
+18,Zenn's Bidding,6,,,,,
+19,Twisted Hatred,6,,,,,
+20,"Timberling Seeds, Timberling Sprouts",7,,,,,
+21,A Troubling Breeze,7,,,,,
+22,Gnarlpine Corruption,7,,,,,
+23,The Moss-twined Heart,7,,,,,
+24,The Road to Darnassus,7,,,,,
