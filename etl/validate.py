@@ -123,7 +123,8 @@ def main() -> None:
     # --- CHECK 3: zero orphan areas -----------------------------------------------------
     orphan_area = _scalar(
         c, "SELECT COUNT(*) FROM areas a WHERE a.target_entry NOT IN "
-           "(SELECT DISTINCT target_id FROM objectives WHERE target_id IS NOT NULL)"
+           "(SELECT target_id FROM objectives WHERE target_id IS NOT NULL "
+           " UNION SELECT source_id FROM objectives WHERE source_id IS NOT NULL)"
     )
     ok3 = orphan_area == 0
     hard_fail |= not ok3
@@ -146,13 +147,37 @@ def main() -> None:
     for qid, name in (givers_no_poi + turnins_no_poi)[:10]:
         lines.append(f"  - unresolved: quest {qid} {name!r}")
 
-    # --- Extra data-quality notes (soft) ------------------------------------------------
+    # --- CHECK 5: gating amendments (0a) ------------------------------------------------
+    n_class = _scalar(c, "SELECT COUNT(*) FROM quests WHERE required_classes != 0")
+    n_event = _scalar(c, "SELECT COUNT(*) FROM quests WHERE event_id IS NOT NULL")
+    race_rows = c.execute(
+        "SELECT id, name, required_races FROM quests WHERE required_races != 0 ORDER BY id"
+    ).fetchall()
+    lines += ["## Quest gating (class / race / event) — ETL step 0a", "",
+              f"- class-restricted quests (required_classes != 0): {n_class}",
+              f"- event/holiday-gated quests (event_id set): {n_event}",
+              f"- race-restricted quests: {len(race_rows)}"]
+    for qid, name, rr in race_rows:
+        lines.append(f"  - quest {qid} {name!r}: required_races={rr} "
+                     f"(NightElf bit 8 {'set' if int(rr) & 8 else 'CLEAR — NE cannot take'})")
+    lines.append("")
+
+    # --- CHECK 6: NULL-drop COLLECT provider linkage (0b) -------------------------------
     collect_no_chance = _scalar(
         c, "SELECT COUNT(*) FROM objectives WHERE kind='COLLECT' AND drop_chance IS NULL"
     )
-    lines += _check("COLLECT objectives with a resolved drop chance", collect_no_chance == 0,
-                    f"{collect_no_chance} COLLECT objectives have no loot row (drop_chance NULL)",
-                    soft=True)
+    unresolved = _scalar(
+        c, "SELECT COUNT(*) FROM objectives o WHERE o.kind='COLLECT' AND o.drop_chance IS NULL "
+           "AND NOT EXISTS (SELECT 1 FROM manual_annotations m "
+           "WHERE m.quest_id=o.quest_id AND m.obj_idx=o.idx)"
+    )
+    n_manual = _scalar(c, "SELECT COUNT(*) FROM manual_annotations WHERE source='manual'")
+    ok6 = unresolved == 0
+    hard_fail |= not ok6
+    lines += _check(
+        "every NULL-drop COLLECT resolves to a provider (never count / NULL)", ok6,
+        f"{collect_no_chance} NULL-drop COLLECT objectives; {unresolved} unresolved; "
+        f"{n_manual} annotations are source=manual (review — see etl/NOTES.md §12)")
 
     lines += ["", "## XP anchor", "",
               f"- xp_levels 1->2 = {_scalar(c, 'SELECT xp_to_next FROM xp_levels WHERE level=1')}"

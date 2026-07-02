@@ -149,3 +149,79 @@ Every compiled row carries `src_table` + `src_pk` (the source PK: quest/creature
 (`numpy`/`scipy`/`matplotlib` incomplete stubs, `sqlite3` rows typed `Any`), not on our own
 code. All substantive strict checks (`reportArgumentType`, `reportGeneralTypeIssues`,
 `reportOptional*`, `reportUnusedImport`, …) stay ON. `make typecheck` → 0 errors.
+
+## 12. M0-review amendment (M1 step 0a) — class / race / event gating
+
+Added `quests.required_classes`, `required_races`, `event_id`, `event_holiday` sourced directly
+from `quest_template.RequiredClasses` / `RequiredRaces` and the `game_event_quest(quest,event)`
+→ `game_event(entry,holiday)` join. Bitmask semantics were **derived empirically, not from
+memory**, and only two bits are actually relied on for this slice:
+
+- **RequiredRaces bit 8 = Night Elf.** Cross-check: the only race-restricted zone quest is
+  927 "The Moss-twined Heart", `RequiredRaces = 77 = 1+4+8+64` — the four Alliance races
+  (Human/Dwarf/NightElf/Gnome), the mask an Alliance-wide quest carries; and the Night-Elf
+  variant of the Hunter class quest "Taming the Beast" (6064/6084) carries the single bit for
+  the NE starting race. Both are consistent only with NightElf = 8. So a NE hunter **can** take
+  927 (bit 8 set).
+- **RequiredClasses bit 4 = Hunter.** Cross-check: every "Taming the Beast" / "The Hunter's
+  Path" row (the hunter class questline) has `RequiredClasses = 4`.
+
+Findings on the 53-quest zone set (in the validation report):
+- **0 class-restricted** quests. The hunter class questline is **not** in the zone set — it
+  sorts under `ZoneOrSort = -261` (the Hunter QuestSort, negative = class/profession sort, not a
+  zone) and is `MinLevel = 10`, i.e. out of both the zone filter and the 1→6 M1 slice.
+- **0 event/holiday-gated** quests (`game_event_quest` has no intersection with the zone set).
+- **1 race-restricted**: quest 927 (Alliance mask, NE included).
+
+## 13. M0-review amendment (M1 step 0b) — NULL-drop COLLECT provider linkage
+
+The 15 COLLECT objectives with NULL `drop_chance` (§4: items not on any loot table) are now each
+linked to a provider in the new `manual_annotations` table (DB entity IDs only). Two mechanisms,
+both read from the dump:
+
+- **QUEST_PROVIDED (11 objectives):** `quest_template.SrcItemId` equals the required item, so the
+  item is in the player's bags on quest accept — no acquisition work, no travel. `source='derived'`.
+  Exception: 2459/obj1 "Tallonkai's Jewel" (8050) is handed over by the giver (Tallonkai Swiftroot
+  3567) but is not listed in `SrcItemId` and has no loot row → `source='manual'`.
+- **FILL_OBJECT (4 objectives):** the four Crown-of-the-Earth phials are *created by using a
+  moonwell*. The create-item **spell** is a DB fact (`spell_template.effectItemType* = the phial`):
+  5184←4976, 5639←6609, 5645←6610, 18151←22562. Four named moonwell gameobjects exist as in-box
+  OBJECT spawns (GO 19549 Shadowglen / 19550 Starbreeze / 19551 Pools of Arlithrien / 19552 Oracle
+  Glade). The phial→moonwell pairing is **derived from the quest text** (M1 review): vanilla
+  `quest_template.Details` names the location outright — "the moonwell north of Aldrassil"
+  (Shadowglen), "outside of Starbreeze Village", "on the shores of the Pools of Arlithrien", "in
+  the Oracle Glade". `build.py::_moonwell_phrase` parses it and sets `source='derived-from-text'`
+  with the quoted phrase; **all 4 pairings derive from text, zero manual residue.**
+
+Invariant enforced by `validate.py`: zero NULL-drop COLLECT objectives without a
+`manual_annotations` row — the sim never evaluates `count / NULL`.
+
+## 15. M1 review amendment — located-less gathers must have a location
+
+The 11 gameobject-gathered lootable COLLECTs (§14) whose source GO has **no map-1 static spawn**
+were re-checked against `pool_gameobject`, `pool_template`, and the `game_event` tables: still no
+in-zone spawn (script-placed). Because the sim must never cost a WORK step against a location-less
+target, each such objective (that has an in-box giver/turn-in) now gets an `OBJECT_GATHER`
+`manual_annotations` row anchored to the quest giver POI (a real DB coordinate), `source='manual'`,
+noting the source GO id and the checks performed. The DSL validator rejects a `WORK … -` whose
+objective has neither a DB area nor an annotation — so the reference route can never silently cost
+a gather at no location.
+
+## 14. M1 schema-gap amendment — lootable COLLECT source & area
+
+Surfaced while hand-authoring the M1 route (DESIGN §12's intent): `areas` are keyed by objective
+*target*, but a lootable COLLECT's target is an *item*, which has no spawns — so those objectives
+had no area and the engine could not locate/measure the work. Fixed by deriving each lootable
+COLLECT's **source entity** from the loot tables (`_drop_chance` now returns the source
+creature/GO entries) and adding `objectives.source_id` / `source_kind`:
+
+- **16/27** lootable COLLECTs resolve to a **creature** source with in-box spawns → the objective
+  gets that creature's densest area (linked by `(quest_id, idx)`) and the engine kills the source
+  creature for the drops (kill XP applies).
+- **11/27** are **gameobject-gathered** items whose source GO has **no static spawn** in this dump
+  (egg, dreamcatcher, sprouts, relics — placed by scripts/dynamically, not in `gameobject`). These
+  keep `source_id = NULL, area_id = NULL`; the sim models them as located-less object gathers
+  (`count/drop_chance` interactions, no kill XP). A DB limitation, not fabricated coordinates.
+
+KILL objectives are unchanged (target creature already had an area). `validate.py` /
+`test_compiled_world.py` orphan-area checks now accept an area that serves a COLLECT `source_id`.

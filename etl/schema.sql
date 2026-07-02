@@ -12,6 +12,7 @@ DROP TABLE IF EXISTS areas;
 DROP TABLE IF EXISTS pois;
 DROP TABLE IF EXISTS items;
 DROP TABLE IF EXISTS xp_levels;
+DROP TABLE IF EXISTS manual_annotations;
 
 -- Build metadata / provenance for the whole compiled DB.
 CREATE TABLE meta (
@@ -30,6 +31,10 @@ CREATE TABLE quests (
     turnin_id       INTEGER,
     prev_quest      INTEGER,
     exclusive_group INTEGER,
+    required_classes INTEGER NOT NULL DEFAULT 0,  -- RequiredClasses bitmask (0 = any); see NOTES.md §12
+    required_races   INTEGER NOT NULL DEFAULT 0,  -- RequiredRaces bitmask (0 = any); NightElf = bit 8
+    event_id         INTEGER,           -- game_event.entry if event/holiday-gated, else NULL
+    event_holiday    INTEGER,           -- game_event.holiday id if gated, else NULL
     xp              INTEGER NOT NULL,   -- quest_template.RewXP (see etl/NOTES.md §3)
     money           INTEGER NOT NULL,   -- copper; RewOrReqMoney when > 0
     reward_choices  TEXT,               -- JSON [{item, count}]
@@ -46,6 +51,8 @@ CREATE TABLE objectives (
     target_id   INTEGER,                -- creature/gameobject/item entry (NULL for ESCORT/EXPLORE)
     count       INTEGER NOT NULL DEFAULT 1,
     drop_chance REAL,                   -- for COLLECT; 0..1 (NULL if no loot row found)
+    source_id   INTEGER,                -- lootable COLLECT: representative source creature/GO entry
+    source_kind TEXT,                   -- CREATURE | OBJECT (source of a lootable COLLECT item)
     area_id     INTEGER REFERENCES areas(id),
     out_of_zone INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (quest_id, idx)
@@ -112,6 +119,24 @@ CREATE TABLE items (
 CREATE TABLE xp_levels (
     level      INTEGER PRIMARY KEY,
     xp_to_next INTEGER NOT NULL
+);
+
+-- Provider linkage for COLLECT objectives whose item has no loot-table row (drop_chance NULL):
+-- the item is quest-provided (in bags on accept) or created by using a world object (moonwell
+-- fill). References DB entity IDs only. `source`: 'derived' (from SrcItemId / a create-item
+-- spell in the dump) or 'manual' (human-supplied linkage the dump does not encode; see NOTES §12).
+-- The sim must never evaluate count / NULL; every NULL-drop COLLECT resolves through a row here.
+CREATE TABLE manual_annotations (
+    quest_id      INTEGER NOT NULL REFERENCES quests(id),
+    obj_idx       INTEGER NOT NULL,
+    provider_kind TEXT NOT NULL,        -- QUEST_PROVIDED | FILL_OBJECT
+    provider_id   INTEGER,              -- QUEST_PROVIDED: giver npc entry; FILL_OBJECT: moonwell GO entry
+    provider_spell INTEGER,             -- FILL_OBJECT: the create-item spell (DB fact), else NULL
+    provider_x    REAL,                 -- provider world coords (for GOTO), NULL if no travel
+    provider_y    REAL,
+    source        TEXT NOT NULL,        -- derived | manual
+    note          TEXT,
+    PRIMARY KEY (quest_id, obj_idx)
 );
 
 CREATE INDEX idx_obj_quest ON objectives(quest_id);

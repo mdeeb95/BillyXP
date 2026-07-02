@@ -51,10 +51,12 @@ def test_no_orphan_objectives(conn: sqlite3.Connection) -> None:
 
 
 def test_no_orphan_areas(conn: sqlite3.Connection) -> None:
+    # An area serves either a KILL/OBJECT target_id or a lootable-COLLECT source_id.
     assert _n(
         conn,
         "SELECT COUNT(*) FROM areas a WHERE a.target_entry NOT IN "
-        "(SELECT DISTINCT target_id FROM objectives WHERE target_id IS NOT NULL)",
+        "(SELECT target_id FROM objectives WHERE target_id IS NOT NULL "
+        " UNION SELECT source_id FROM objectives WHERE source_id IS NOT NULL)",
     ) == 0
 
 

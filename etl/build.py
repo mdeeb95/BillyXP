@@ -11,6 +11,7 @@ Run:  make etl   (or  uv run python -m etl.build)
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -211,13 +212,14 @@ def main() -> None:
     _write_meta(out, src, zone_id, sort_ids, box, quest_ids)
     _write_xp_levels(out, src)
     spawn_entries = _write_spawns(out, creature_spawns, gameobject_spawns, box)
-    obj_targets = _write_quests_and_objectives(
+    obj_targets, collect_src = _write_quests_and_objectives(
         out, src, quest_ids, givers, turnins, creature_spawns, gameobject_spawns, box
     )
     _write_mobs(out, src, spawn_entries["CREATURE"] | obj_targets)
-    _write_areas_and_link(out, src, obj_targets, box)
+    _write_areas_and_link(out, src, obj_targets, collect_src, box)
     _write_pois(out, src, quest_ids, givers, turnins, creature_spawns, gameobject_spawns, box)
     _write_items(out, src, quest_ids)
+    _write_manual_annotations(out, src)
 
     out.commit()
     _wowhead_note(out)
@@ -319,11 +321,14 @@ def _write_quests_and_objectives(
     creature_spawns: dict[int, list[tuple[int, float, float, float, int]]],
     gameobject_spawns: dict[int, list[tuple[int, float, float, float, int]]],
     box: Box,
-) -> set[int]:
-    """Write quests + objectives. Returns the set of KILL/OBJECT creature/GO target entries."""
+) -> tuple[set[int], dict[tuple[int, int], tuple[str, int]]]:
+    """Write quests + objectives. Returns (obj_targets, collect_src): the set of area target
+    entries (KILL/OBJECT targets + lootable-COLLECT sources) and the per-COLLECT source map."""
     obj_targets: set[int] = set()
+    collect_src: dict[tuple[int, int], tuple[str, int]] = {}
     ph = ",".join("?" * len(quest_ids))
-    # Dedup to the max patch <= era per entry.
+    # New columns (RequiredClasses, RequiredRaces, SrcItemId) are appended AFTER the existing
+    # selection so downstream positional indices (r[0]..r[42]) are unchanged. See NOTES.md §12.
     qrows = src.execute(
         f"""SELECT entry, patch, Title, MinLevel, QuestLevel, ZoneOrSort, RewXP,
                    RewOrReqMoney, PrevQuestId, ExclusiveGroup, SpecialFlags,
@@ -335,7 +340,8 @@ def _write_quests_and_objectives(
                    RewChoiceItemId1, RewChoiceItemId2, RewChoiceItemId3,
                    RewChoiceItemId4, RewChoiceItemId5, RewChoiceItemId6,
                    RewChoiceItemCount1, RewChoiceItemCount2, RewChoiceItemCount3,
-                   RewChoiceItemCount4, RewChoiceItemCount5, RewChoiceItemCount6
+                   RewChoiceItemCount4, RewChoiceItemCount5, RewChoiceItemCount6,
+                   RequiredClasses, RequiredRaces, SrcItemId
             FROM quest_template
             WHERE entry IN ({ph}) AND patch <= ?
             ORDER BY entry, patch""",
@@ -344,6 +350,14 @@ def _write_quests_and_objectives(
     best: dict[int, tuple[Any, ...]] = {}  # sqlite rows (mixed types) -> Any elements
     for r in qrows:
         best[int(r[0])] = r  # later (higher patch) overwrites -> max patch kept
+
+    # Event/holiday gating: game_event_quest(quest, event) -> game_event(entry, holiday).
+    events: dict[int, tuple[int, int | None]] = {}  # quest_id -> (event_id, holiday)
+    ev_holiday = {int(e): (int(h) if h is not None else None)
+                  for e, h in src.execute("SELECT entry, holiday FROM game_event")}
+    for q, ev in src.execute("SELECT quest, event FROM game_event_quest"):
+        if int(q) in best:
+            events[int(q)] = (int(ev), ev_holiday.get(int(ev)))
 
     q_out: list[tuple[object, ...]] = []
     o_out: list[tuple[object, ...]] = []
@@ -363,9 +377,13 @@ def _write_quests_and_objectives(
             for i in range(6)
             if int(r[31 + i]) != 0
         ]
+        ev = events.get(entry)
         q_out.append((
             entry, r[2], int(r[3]), int(r[4]), gk, gid, tk, tid,
-            int(r[8]) or None, int(r[9]) or None, int(r[6]), max(int(r[7]), 0),
+            int(r[8]) or None, int(r[9]) or None,
+            int(r[43]), int(r[44]),                       # required_classes, required_races
+            ev[0] if ev else None, ev[1] if ev else None,  # event_id, event_holiday
+            int(r[6]), max(int(r[7]), 0),
             json.dumps(choices) if choices else None, int(r[5]), out_of_zone,
             "quest_template", entry,
         ))
@@ -384,9 +402,12 @@ def _write_quests_and_objectives(
             target = abs(cid)
             obj_targets.add(target)
             in_box = _target_in_box(target, kind, creature_spawns, gameobject_spawns, box)
-            o_out.append((entry, idx, kind, target, cnt or 1, None, None, int(not in_box)))
+            o_out.append((entry, idx, kind, target, cnt or 1, None, None, None, None,
+                          int(not in_box)))
             idx += 1
-        # COLLECT objectives (ReqItemId)
+        # COLLECT objectives (ReqItemId). A lootable COLLECT (drop_chance found) is linked to a
+        # representative source entity so it gets an area & a combat/gather source; a NULL-drop
+        # COLLECT routes through a provider annotation (ETL step 0b) instead.
         for j in range(4):
             iid = int(r[19 + j])
             cnt = int(r[23 + j])
@@ -394,25 +415,38 @@ def _write_quests_and_objectives(
                 continue
             has_target = True
             src_ids = {int(r[27 + k]) for k in range(4)}
-            drop = 1.0 if iid in src_ids else _drop_chance(src, iid)
-            o_out.append((entry, idx, "COLLECT", iid, cnt or 1, drop, None, 0))
+            source_kind: str | None = None
+            source_id: int | None = None
+            if iid in src_ids:
+                drop = 1.0  # quest-provided source item (ReqSourceId); in bags, no kills
+            else:
+                drop, sources = _drop_chance(src, iid)
+                if drop is not None:
+                    rep = _pick_source(sources, creature_spawns, gameobject_spawns, box)
+                    if rep is not None:
+                        source_kind, source_id = rep
+                        obj_targets.add(source_id)
+                        collect_src[(entry, idx)] = (source_kind, source_id)
+            o_out.append((entry, idx, "COLLECT", iid, cnt or 1, drop, source_id, source_kind,
+                          None, 0))
             idx += 1
         # Escort / event (SpecialFlags EXPLORATION_OR_EVENT, no kill/collect) -> ESCORT
         if not has_target and (special & 0x2):
-            o_out.append((entry, idx, "ESCORT", None, 1, None, None, 0))
+            o_out.append((entry, idx, "ESCORT", None, 1, None, None, None, None, 0))
 
     out.executemany(
         "INSERT INTO quests(id,name,min_level,quest_level,giver_kind,giver_id,turnin_kind,"
-        "turnin_id,prev_quest,exclusive_group,xp,money,reward_choices,zone_or_sort,"
-        "out_of_zone,src_table,src_pk) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "turnin_id,prev_quest,exclusive_group,required_classes,required_races,event_id,"
+        "event_holiday,xp,money,reward_choices,zone_or_sort,out_of_zone,src_table,src_pk)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         q_out,
     )
     out.executemany(
-        "INSERT INTO objectives(quest_id,idx,kind,target_id,count,drop_chance,area_id,"
-        "out_of_zone) VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO objectives(quest_id,idx,kind,target_id,count,drop_chance,source_id,"
+        "source_kind,area_id,out_of_zone) VALUES (?,?,?,?,?,?,?,?,?,?)",
         o_out,
     )
-    return obj_targets
+    return obj_targets, collect_src
 
 
 def _target_in_box(
@@ -425,19 +459,43 @@ def _target_in_box(
     return any(box.contains(x, y) for _g, x, y, _z, _r in spawns.get(target, []))
 
 
-def _drop_chance(src: sqlite3.Connection, item_id: int) -> float | None:
-    """Look up a quest item's drop chance from loot tables (mangos: negative = quest drop)."""
-    row = src.execute(
-        """SELECT ChanceOrQuestChance FROM creature_loot_template WHERE item = ?
-           UNION ALL
-           SELECT ChanceOrQuestChance FROM gameobject_loot_template WHERE item = ?
-           ORDER BY 1""",
-        (item_id, item_id),
-    ).fetchone()
-    if row is None:
-        return None
-    chance = float(row[0])
-    return min(abs(chance) / 100.0, 1.0) if chance != 0 else None
+def _drop_chance(
+    src: sqlite3.Connection, item_id: int
+) -> tuple[float | None, list[tuple[str, int]]]:
+    """Look up a quest item's drop chance + its source entities from loot tables (mangos:
+    negative = quest drop). Returns (chance, sources) where sources is [(kind, entry)] over
+    creature and gameobject loot tables — used to give a lootable COLLECT an area & combat source.
+    """
+    sources: list[tuple[str, int]] = []
+    best_abs = 0.0
+    for kind, table in (("CREATURE", "creature_loot_template"),
+                        ("OBJECT", "gameobject_loot_template")):
+        for entry, chance in src.execute(
+            f"SELECT entry, ChanceOrQuestChance FROM {table} WHERE item = ?", (item_id,)
+        ):
+            sources.append((kind, int(entry)))
+            best_abs = max(best_abs, abs(float(chance)))
+    if not sources or best_abs == 0.0:
+        return None, sources
+    return min(best_abs / 100.0, 1.0), sources
+
+
+def _pick_source(
+    sources: list[tuple[str, int]],
+    creature_spawns: dict[int, list[tuple[int, float, float, float, int]]],
+    gameobject_spawns: dict[int, list[tuple[int, float, float, float, int]]],
+    box: Box,
+) -> tuple[str, int] | None:
+    """Representative source for a lootable COLLECT: the source entity with the most in-box
+    spawns (tie-break lowest entry). Deterministic."""
+    best: tuple[int, str, int] | None = None  # (-n_inbox, kind, entry) for min()
+    for kind, entry in sources:
+        spawns = creature_spawns if kind == "CREATURE" else gameobject_spawns
+        n = sum(1 for _g, x, y, _z, _r in spawns.get(entry, []) if box.contains(x, y))
+        key = (-n, kind, entry)
+        if n > 0 and (best is None or key < best):
+            best = key
+    return (best[1], best[2]) if best else None
 
 
 def _write_mobs(out: sqlite3.Connection, src: sqlite3.Connection, entries: set[int]) -> None:
@@ -489,12 +547,17 @@ def _write_mobs(out: sqlite3.Connection, src: sqlite3.Connection, entries: set[i
 
 
 def _write_areas_and_link(
-    out: sqlite3.Connection, src: sqlite3.Connection, obj_targets: set[int], box: Box,
+    out: sqlite3.Connection, src: sqlite3.Connection, obj_targets: set[int],
+    collect_src: dict[tuple[int, int], tuple[str, int]], box: Box,
 ) -> None:
-    """DBSCAN spawns of each objective target into areas; link objectives to densest area."""
+    """DBSCAN spawns of each objective target into areas; link objectives to their densest area.
+    KILL/OBJECT link by target entry; lootable COLLECT links by (quest_id, idx) to its source
+    entity's area (collect_src)."""
+    _ = box  # spawns already box-filtered upstream; kept for signature parity
     area_rows: list[tuple[object, ...]] = []
     area_id = 1
     target_to_area: dict[tuple[int, str], int] = {}
+    entry_to_area: dict[int, int] = {}
     # Read in-box spawns straight from the compiled table (already filtered).
     spawns_by_entry: dict[int, list[tuple[str, float, float]]] = {}
     for kind, entry, x, y in out.execute("SELECT kind, entry, x, y FROM spawns"):
@@ -528,6 +591,7 @@ def _write_areas_and_link(
             best_area_for_target = (area_id, n)
             area_id += 1
         target_to_area[(target, kind)] = best_area_for_target[0]
+        entry_to_area[target] = best_area_for_target[0]
 
     out.executemany(
         "INSERT INTO areas(id,target_entry,target_kind,centroid_x,centroid_y,radius,"
@@ -541,6 +605,13 @@ def _write_areas_and_link(
             "UPDATE objectives SET area_id = ? WHERE target_id = ? AND kind = ?",
             (aid, target, okind),
         )
+    # Link lootable COLLECT objectives to their source entity's densest area (by quest_id, idx).
+    for (qid, idx), (_skind, source_entry) in collect_src.items():
+        aid = entry_to_area.get(source_entry)
+        if aid is not None:
+            out.execute(
+                "UPDATE objectives SET area_id = ? WHERE quest_id = ? AND idx = ?", (aid, qid, idx)
+            )
 
 
 def _write_pois(
@@ -626,6 +697,133 @@ def _write_items(out: sqlite3.Connection, src: sqlite3.Connection, quest_ids: li
         " VALUES (?,?,?,?,?,?,?,?)",
         rows,
     )
+
+
+# Fill-at-moonwell linkage for the Crown of the Earth phials (DESIGN 0b). Each filled phial is
+# created by a create-item spell found in the dump (spell_template.effectItemType* -> the item);
+# these spell IDs are DB facts. Named moonwell gameobjects (GO 19549-19552) exist as in-box OBJECT
+# spawns. The phial->moonwell pairing is NOT in a data field, but the vanilla quest TEXT names the
+# moonwell outright (quest_template.Details); `_moonwell_phrase` parses it and downgrades the row
+# to source='derived-from-text' quoting the phrase. Only rows where SrcItemId != required item are
+# fills; the rest are quest-provided. Named moonwell -> GO entry (from gameobject_template names):
+FILL_MAP: dict[int, tuple[int, int, str]] = {
+    #  required_item: (create_spell, moonwell_go_entry, expected-location keyword in quest text)
+    5184: (4976, 19549, "aldrassil"),       # Filled Crystal Phial  (q921)  Shadowglen Moonwell
+    5639: (6609, 19550, "starbreeze"),      # Filled Jade Phial      (q929)  Starbreeze Moonwell
+    5645: (6610, 19551, "arlithrien"),      # Filled Tourmaline Phial(q933)  Pools of Arlithrien
+    18151: (22562, 19552, "oracle glade"),  # Filled Amethyst Phial  (q7383) Oracle Glade Moonwell
+}
+
+
+def _moonwell_phrase(src: sqlite3.Connection, quest_id: int, keyword: str) -> str | None:
+    """Return the sentence in the quest's Details/Objectives that names the moonwell location
+    (contains 'moonwell' and the expected location keyword), else None. Used to promote a FILL
+    pairing from manual to derived-from-text."""
+    row = src.execute(
+        "SELECT Objectives, Details FROM quest_template WHERE entry=? AND patch<=? "
+        "ORDER BY patch DESC LIMIT 1", (quest_id, PATCH_ERA)
+    ).fetchone()
+    if row is None:
+        return None
+    text = " ".join(str(t) for t in row if t)
+    for sentence in re.split(r"(?<=[.!])\s+", text):
+        low = sentence.lower()
+        if "moonwell" in low and keyword in low:
+            return " ".join(sentence.split())[:200]
+    return None
+
+
+def _write_manual_annotations(out: sqlite3.Connection, src: sqlite3.Connection) -> None:
+    """Resolve a provider for every NULL-drop COLLECT objective (DESIGN 0b).
+
+    QUEST_PROVIDED: the item is granted by the quest (SrcItemId == required item, or the
+      giver hands it over) -> in bags on accept, no travel. source='derived' (or 'manual' where
+      the dump does not list it in SrcItemId).
+    FILL_OBJECT: the item is created by using a moonwell (FILL_MAP) -> GOTO the moonwell +
+      interaction time. Pairing is source='manual' (see FILL_MAP comment).
+    """
+    nulls = out.execute(
+        "SELECT quest_id, idx, target_id FROM objectives "
+        "WHERE kind='COLLECT' AND drop_chance IS NULL ORDER BY quest_id, idx"
+    ).fetchall()
+    # Moonwell coords from the compiled (in-box) spawns table.
+    go_xy: dict[int, tuple[float, float]] = {
+        int(e): (float(x), float(y))
+        for e, x, y in out.execute("SELECT entry, x, y FROM spawns WHERE kind='OBJECT'")
+    }
+    # Giver/turn-in POI coords (for anchoring gather annotations to a real location).
+    giver_poi: dict[int, tuple[float, float]] = {
+        int(r) : (float(x), float(y))
+        for r, x, y in out.execute("SELECT ref_id, x, y FROM pois WHERE kind='GIVER'")
+    }
+    turnin_poi: dict[int, tuple[float, float]] = {
+        int(r): (float(x), float(y))
+        for r, x, y in out.execute("SELECT ref_id, x, y FROM pois WHERE kind='TURNIN'")
+    }
+    rows: list[tuple[object, ...]] = []
+    for quest_id, idx, item in nulls:
+        srow = src.execute(
+            "SELECT SrcItemId FROM quest_template WHERE entry=? AND patch<=? ORDER BY patch DESC LIMIT 1",
+            (quest_id, PATCH_ERA),
+        ).fetchone()
+        src_item = int(srow[0]) if srow and srow[0] is not None else 0
+        giver = out.execute("SELECT giver_id FROM quests WHERE id=?", (quest_id,)).fetchone()
+        giver_id = int(giver[0]) if giver and giver[0] is not None else None
+        if item in FILL_MAP:
+            spell, go_entry, keyword = FILL_MAP[item]
+            xy = go_xy.get(go_entry)
+            phrase = _moonwell_phrase(src, quest_id, keyword)
+            if phrase is not None:
+                source, note = "derived-from-text", f'quest text: "{phrase}" -> moonwell GO {go_entry}'
+            else:
+                source, note = "manual", f"phial filled by spell {spell} at GO {go_entry} (pairing manual)"
+            rows.append((quest_id, idx, "FILL_OBJECT", go_entry, spell,
+                         xy[0] if xy else None, xy[1] if xy else None, source, note))
+        else:
+            derived = item == src_item
+            rows.append((
+                quest_id, idx, "QUEST_PROVIDED", giver_id, None, None, None,
+                "derived" if derived else "manual",
+                "item in bags on accept (SrcItemId match)" if derived
+                else "item granted by giver; not in SrcItemId (manual)",
+            ))
+
+    # Located-less lootable gathers: COLLECT with a drop_chance but no area and no creature source
+    # (item comes from a gameobject that has NO static map-1 spawn — checked gameobject / pool_
+    # gameobject / game_event; script/pool placed). Anchor to the giver (else turn-in) POI so the
+    # sim never costs WORK against a location-less target (M1 review). source='manual'.
+    gathers = out.execute(
+        "SELECT quest_id, idx, target_id FROM objectives WHERE kind='COLLECT' "
+        "AND drop_chance IS NOT NULL AND area_id IS NULL AND source_id IS NULL "
+        "ORDER BY quest_id, idx"
+    ).fetchall()
+    n_gather = 0
+    for quest_id, idx, item in gathers:
+        anchor = giver_poi.get(quest_id) or turnin_poi.get(quest_id)
+        if anchor is None:
+            continue  # out-of-slice quest with no in-box giver/turn-in; not route-reachable
+        go = src.execute(
+            "SELECT entry FROM gameobject_loot_template WHERE item=? LIMIT 1", (item,)
+        ).fetchone()
+        go_id = int(go[0]) if go else None
+        rows.append((
+            quest_id, idx, "OBJECT_GATHER", go_id, None, anchor[0], anchor[1], "manual",
+            f"item {item} from GO {go_id} has no map-1 static spawn "
+            f"(checked gameobject/pool_gameobject/game_event); located at quest giver as proxy",
+        ))
+        n_gather += 1
+
+    out.executemany(
+        "INSERT INTO manual_annotations(quest_id,obj_idx,provider_kind,provider_id,"
+        "provider_spell,provider_x,provider_y,source,note) VALUES (?,?,?,?,?,?,?,?,?)",
+        rows,
+    )
+    n_fill = sum(1 for r in rows if r[2] == "FILL_OBJECT")
+    n_manual = sum(1 for r in rows if r[7] == "manual")
+    n_text = sum(1 for r in rows if r[7] == "derived-from-text")
+    print(f"ETL: manual_annotations: {len(rows)} rows "
+          f"({n_fill} fill-object [{n_text} derived-from-text], {n_gather} object-gather, "
+          f"{len(rows) - n_fill - n_gather} quest-provided; {n_manual} source=manual).")
 
 
 def _wowhead_note(out: sqlite3.Connection) -> None:
