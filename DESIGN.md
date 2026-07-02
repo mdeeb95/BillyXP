@@ -152,6 +152,8 @@ The router mutates **task sequences**; the engine compiles a sequence into an **
 
 `time = euclid(a, b) × k_zone / speed`, `speed = 7.0 yd/s` (base run). `k_zone` init 1.3, calibrated in M5. `TravelModel` is an interface — a waypoint-graph or navmesh (mmap) implementation replaces EuclideanK later without touching the engine.
 
+**Calibration note (XP-bar discriminator).** Per-segment travel residuals are only cleanly attributable to `k_zone`/geometry once the calibration run confirms kill counts and level-ups landed as predicted — a mis-costed XP award (§8.3) shifts when level-ups happen and perturbs every downstream segment's mob level-delta, contaminating what looks like a travel error. The M5 run therefore captures observed xp-into-level at each turn-in (XP bar in frame) and checks it against the frozen `predicted_xp_into` before reading travel residuals. See `eval/PREDICTIONS.md` → Hypothesis #4 / Pre-registration.
+
 ### 8.2 Combat / kill rate
 
 ```
@@ -253,6 +255,7 @@ Known optimism: no bag-space or vendoring-loop modeling at this bracket.
 - **License:** GPL-lineage data; compiled DB private, no redistribution in this phase.
 - **Candidate explosion (M7+):** `BUY_UPGRADE` and other optional atoms multiply the search space. Dominance filtering — prune candidates dominated per slot / level-band — is required before multi-zone scale, else the SA state space blows up.
 - **Ranged damage = weapon + ammo (hunter):** `ranged_dps` currently models the bow/gun alone. A hunter's actual ranged output is weapon dps **plus** the equipped ammo's dps, so the combat model should eventually make `ranged_dps` a function of (weapon, ammo). This matters twice: (1) calibration — the M1 kill-timing experiment must hold ammo constant across arms (see `eval/playsheet.py` epilogue controls) or the ranged-upgrade delta is confounded; (2) the M7 economy model — ammo is a **recurring consumable expense** (unlike the one-off weapon purchase), so a correct gold curve must debit arrows over time, not just the bow at point of sale. Deferred until real ammo dps values are pulled from the DB (no ammo facts from memory).
+- **XP model as a hidden error source (pre-registered check):** kill/quest XP (§8.3) is deterministic and DB-sourced, so it is easy to *assume* correct and never test. But a wrong XP award moves when level-ups land and perturbs every downstream segment's mob level-delta — surfacing as what looks like travel or combat error. Mitigation is pre-registered before the M5 run: the frozen `predicted_xp_into` (per turn-in) is checked against the observed XP bar (`xp_into_level`) captured at each segment. If xp-into-level matches, time residuals attribute cleanly to travel/combat; if it diverges, the XP path is implicated first. See `eval/PREDICTIONS.md` → Hypothesis #4 / Pre-registration and §8.1's calibration note.
 
 ## 14. Later phases (context only — do not build)
 

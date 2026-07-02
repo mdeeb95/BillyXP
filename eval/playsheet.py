@@ -36,12 +36,15 @@ MAPPROJ = ROOT / "eval" / "teldrassil_mapproj.json"
 
 # Epilogue (bow-experiment) capture fields — the single source of truth shared by the CSV template
 # and the playsheet's epilogue LOG prompts, so the sheet can never ask for a field the log lacks.
-EP_ARM1 = [f"arm1_kill{i:02d}_s" for i in range(1, 11)]
-EP_ARM2 = [f"arm2_kill{i:02d}_s" for i in range(1, 11)]
-EP_BASELINE = ["arrow_type", "baseline_played_hms", "gold_before_copper"]
-EP_BUY = ["price_paid_copper"]
-EP_AFTER = ["gold_after_copper", "after_played_hms"]
-EPILOGUE_FIELDS = EP_BASELINE + EP_ARM1 + EP_BUY + EP_ARM2 + EP_AFTER
+# Arm TOTALS (from the /played delta across each arm) are MANDATORY — they are the experiment's
+# primary measure. Per-kill splits are OPTIONAL (fill from a screen recording if you have one).
+EP_ARM1_KILLS = [f"arm1_kill{i:02d}_s" for i in range(1, 11)]
+EP_ARM2_KILLS = [f"arm2_kill{i:02d}_s" for i in range(1, 11)]
+EP_MANDATORY = ["arrow_type", "baseline_played_hms", "gold_before_copper",
+                "arm1_total_s", "price_paid_copper", "arm2_total_s",
+                "gold_after_copper", "after_played_hms"]
+EP_OPTIONAL = EP_ARM1_KILLS + EP_ARM2_KILLS
+EPILOGUE_FIELDS = EP_MANDATORY + EP_OPTIONAL
 
 # The frozen M1 route (eval/PREDICTIONS.md). The playsheet only renders THIS route.
 FROZEN_ROUTE_SHA = "321e3c3547a3e545c45d6d670fd249906a9201d36f87279e2a09b9accdbb78ab"
@@ -276,6 +279,9 @@ def render(timeline: list[dict[str, Any]], world: World, names: Names, with_time
         f"- world DB: {meta_src}",
         "- times/durations: " + ("SHOWN (--with-times)" if with_times
                                   else "hidden by default (anchor hygiene)"),
+        "", "---", "", "## Before you start", "",
+        "- [ ] **Start screen recording** (enables the optional per-kill splits and is a fallback "
+        "for every LOG prompt).",
         "", "---", "", "## Route", "",
     ]
     csv_rows: list[list[str]] = []
@@ -306,12 +312,17 @@ def render(timeline: list[dict[str, Any]], world: World, names: Names, with_time
             contingency = (f"  _If under {cl.level_after}: grind **{last_mob}** nearby first "
                            f"(advisory)._" if last_mob else "")
             out.append(f"- **Expected level here: {cl.level_after}.**{contingency}")
-            out.append(f"- `LOG: screenshot /played - segment {seg}`")
+            out.append(f"- `LOG: screenshot /played - segment {seg}` — **XP bar in frame** "
+                       "(records xp-into-level for the pre-registered XP check).")
             qids = [int(_toks(str(e["step"]))[1]) for e in cl.entries
                     if str(e["step"]).startswith("TURNIN")]
             quests = ", ".join(world.quest(q).name for q in qids)
+            pred_xp = int(cl.entries[-1]["xp"])  # pre-registered predicted xp-into-level
             seg_quests.append((seg, qids))
-            csv_rows.append([str(seg), quests, str(cl.level_after), "", "", "", "", ""])
+            # cols: segment, quests, expected_level, predicted_xp_into (pre-registered),
+            #       xp_into_level (observed, blank), played_hms, gold_copper, deaths, drinks, notes
+            csv_rows.append([str(seg), quests, str(cl.level_after), str(pred_xp),
+                             "", "", "", "", "", ""])
         if with_times:
             end_min = float(cl.entries[-1]["t1"]) / 60.0
             out.append(f"  <sub>predicted cumulative: {end_min:.0f} min</sub>")
@@ -349,19 +360,23 @@ def _epilogue(names: Names, world: World, end_level: int,
         "are both legible).",
         "",
         "1. **Baseline:** screenshot `/played` and your gold (bags open).",
-        f"   - `LOG -> eval/runs/epilogue_template.csv: {', '.join(EP_BASELINE)}`",
-        f"2. **10 timed kills** on {mob_txt}, single pulls only. Record each kill time.",
-        f"   - `LOG -> epilogue_template.csv: {EP_ARM1[0]} .. {EP_ARM1[-1]}`",
+        "   - `LOG -> eval/runs/epilogue_template.csv: arrow_type, baseline_played_hms, "
+        "gold_before_copper`",
+        f"2. **Arm 1 — 10 kills** on {mob_txt}, single pulls only. Screenshot `/played` at the "
+        "**start and end of the arm** (its delta is the arm total); no per-kill screenshots.",
+        "   - `LOG -> epilogue_template.csv: arm1_total_s` (required); `arm1_kill01_s .. "
+        "arm1_kill10_s` (optional, from recording).",
         f"3. **Buy** the **{bow['item']}** (item {bow['item_id']}) from **{bow['vendor']}** "
         f"(NPC {bow['vendor_id']}, world {float(bow['x']):.0f},{float(bow['y']):.0f}) - "
         f"{price_str(int(bow['price_c']))}, requires level {bow['req']}, "
         f"~{float(bow['dps']):.2f} weapon dps. Equip it.",
-        f"   - `LOG -> epilogue_template.csv: {', '.join(EP_BUY)}`",
-        f"4. **10 timed kills** on the same {mob_txt}, single pulls only, same arrow type. Record "
-        "each kill time.",
-        f"   - `LOG -> epilogue_template.csv: {EP_ARM2[0]} .. {EP_ARM2[-1]}`",
+        "   - `LOG -> epilogue_template.csv: price_paid_copper`",
+        f"4. **Arm 2 — 10 kills** on the same {mob_txt}, single pulls only, same arrow type. "
+        "Screenshot `/played` at the **start and end of the arm**; no per-kill screenshots.",
+        "   - `LOG -> epilogue_template.csv: arm2_total_s` (required); `arm2_kill01_s .. "
+        "arm2_kill10_s` (optional, from recording).",
         "5. **After:** screenshot `/played` and your gold (bags open).",
-        f"   - `LOG -> epilogue_template.csv: {', '.join(EP_AFTER)}`",
+        "   - `LOG -> epilogue_template.csv: gold_after_copper, after_played_hms`",
         "", "_Deferred bigger jump: Laminated Recurve Bow (item 2507) is level-11 gated._", "",
     ]
     return out
@@ -435,14 +450,18 @@ def main() -> None:
         "# segment -> quest_ids (each quest keyed to its turn-in segment; union = full route set):",
     ]
     comment += [f"#   seg {seg:>2}: {','.join(str(q) for q in qs)}" for seg, qs in seg_quests]
-    header = "segment,quests,expected_level,played_hms,gold_copper,deaths,drinks,notes"
+    header = ("segment,quests,expected_level,predicted_xp_into,xp_into_level,"
+              "played_hms,gold_copper,deaths,drinks,notes")
     body = "\n".join(",".join(_csv(c) for c in row) for row in csv_rows)
     CSV.write_text("\n".join(comment) + "\n" + header + "\n" + body + "\n", encoding="utf-8")
     # Epilogue capture template (bow experiment) — key/value, one field per row, blank to fill.
     # Field list is EPILOGUE_FIELDS, the same source the playsheet's epilogue LOG prompts cite.
+    # Arm totals are required; per-kill splits are optional (fill from a recording if available).
     ep = ["# Bow-experiment capture — fill 'value'. Fields cited by the playsheet epilogue LOG "
-          "prompts (single source of truth).", "field,value"]
-    ep += [f"{f}," for f in EPILOGUE_FIELDS]
+          "prompts (single source of truth). requirement: required = mandatory; "
+          "optional = fill from recording if available.", "field,value,requirement"]
+    ep += [f"{f},,required" for f in EP_MANDATORY]
+    ep += [f"{f},,optional — fill from recording if available" for f in EP_OPTIONAL]
     EPILOGUE_CSV.write_text("\n".join(ep) + "\n", encoding="utf-8")
     print(f"playsheet: wrote {OUT_MD} ({len(csv_rows)} segments)")
     print(f"playsheet: wrote {CSV}")

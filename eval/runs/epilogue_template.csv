@@ -1,28 +1,30 @@
-# Bow-experiment capture — fill 'value'. Fields cited by the playsheet epilogue LOG prompts (single source of truth).
-field,value
-arrow_type,
-baseline_played_hms,
-gold_before_copper,
-arm1_kill01_s,
-arm1_kill02_s,
-arm1_kill03_s,
-arm1_kill04_s,
-arm1_kill05_s,
-arm1_kill06_s,
-arm1_kill07_s,
-arm1_kill08_s,
-arm1_kill09_s,
-arm1_kill10_s,
-price_paid_copper,
-arm2_kill01_s,
-arm2_kill02_s,
-arm2_kill03_s,
-arm2_kill04_s,
-arm2_kill05_s,
-arm2_kill06_s,
-arm2_kill07_s,
-arm2_kill08_s,
-arm2_kill09_s,
-arm2_kill10_s,
-gold_after_copper,
-after_played_hms,
+# Bow-experiment capture — fill 'value'. Fields cited by the playsheet epilogue LOG prompts (single source of truth). requirement: required = mandatory; optional = fill from recording if available.
+field,value,requirement
+arrow_type,,required
+baseline_played_hms,,required
+gold_before_copper,,required
+arm1_total_s,,required
+price_paid_copper,,required
+arm2_total_s,,required
+gold_after_copper,,required
+after_played_hms,,required
+arm1_kill01_s,,optional — fill from recording if available
+arm1_kill02_s,,optional — fill from recording if available
+arm1_kill03_s,,optional — fill from recording if available
+arm1_kill04_s,,optional — fill from recording if available
+arm1_kill05_s,,optional — fill from recording if available
+arm1_kill06_s,,optional — fill from recording if available
+arm1_kill07_s,,optional — fill from recording if available
+arm1_kill08_s,,optional — fill from recording if available
+arm1_kill09_s,,optional — fill from recording if available
+arm1_kill10_s,,optional — fill from recording if available
+arm2_kill01_s,,optional — fill from recording if available
+arm2_kill02_s,,optional — fill from recording if available
+arm2_kill03_s,,optional — fill from recording if available
+arm2_kill04_s,,optional — fill from recording if available
+arm2_kill05_s,,optional — fill from recording if available
+arm2_kill06_s,,optional — fill from recording if available
+arm2_kill07_s,,optional — fill from recording if available
+arm2_kill08_s,,optional — fill from recording if available
+arm2_kill09_s,,optional — fill from recording if available
+arm2_kill10_s,,optional — fill from recording if available

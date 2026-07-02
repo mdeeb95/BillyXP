@@ -83,6 +83,21 @@ section. History is left as-is (no squash/rewrite): rewriting it would erase the
 freeze was unpinned for this interval, and an integrity ledger that edits away its own failures is
 worthless. The ledger records its own failures.
 
+### Addendum — gate scoping (post-tag)
+
+After the `m1-freeze` tag was applied (commit `b25834c`), the verify-freeze gate was refined; **the
+tag does not move** and its numbers stay pinned by reproduction. Two refinements:
+
+- **Clean-tree check scoped to frozen code** (commit `9386e30`). The original spec ("assert clean
+  tree" *and* "run before every commit") is self-contradictory — a whole-tree-clean assert can never
+  pass at the instant you commit. The scoped form (uncommitted-change check limited to `sim/**` +
+  the route DSL) encodes the freeze-safe lane: frozen code is locked; tooling/docs/ledger edits flow.
+- **Committed-drift guard + PREDICTIONS.md exemption.** verify-freeze now also asserts frozen code at
+  HEAD is byte-identical to the `m1-freeze` tag (git equality pins the code; reproduction pins the
+  gitignored `data/compiled` DB — complementary blind spots). `PREDICTIONS.md` is **exempt from git
+  equality** (it is a living, append-only ledger during the freeze); its frozen numbers remain pinned
+  by the reproduction-vs-recorded match, not by its bytes.
+
 ## Grading note
 
 The **total** duration grades the *forecasters* (expert prior vs sim). It does **not** attribute
@@ -123,3 +138,25 @@ grade on **direction only**, against per-segment residuals, never on the total:
 - **Travel over-counted on short hops:** Euclidean×k charges separate area centroids as full hops
   on overlapping Shadowglen mob fields. Early Shadowglen is the worst case; Dolanaar's real
   distances should fit better.
+- **Hypothesis #4 — XP model is exact (pre-registered, quantitative, not just directional):** XP is
+  deterministic and DB-sourced (quest `RewXP` + the cited kill formula), so predicted **xp-into-level
+  at each turn-in** should match the real XP bar to within kill-count noise (a mob or two of slack
+  from over/under-killing). Unlike #1–#3 this is a *quantitative* pre-registration, gradeable
+  segment-by-segment. **Why it matters:** if xp-into-level matches but times don't, per-segment TIME
+  residuals attribute cleanly to the time model (travel/combat, #2/#3); if xp-into-level *diverges*
+  systematically, the kill-count / XP path is implicated **first**, because a mis-costed XP award
+  changes when level-ups land and thus every downstream segment. **Falsifier:** observed
+  xp-into-level departs from the predicted column by more than kill-count noise at a turn-in.
+
+### Pre-registration — XP-bar capture (recorded before the run)
+
+Registered **before** the calibration run, so it counts:
+
+- The predicted **xp-into-level** at every turn-in is on record in two places (both frozen): the
+  *Predicted level at each turn-in* table above, and the `predicted_xp_into` column of
+  `eval/runs/template.csv`.
+- The run captures the **observed** value into the `xp_into_level` column; each turn-in `/played`
+  screenshot must be taken **with the XP bar in frame** (playsheet LOG prompts enforce this).
+- Grading: compare `xp_into_level` (observed) vs `predicted_xp_into` (frozen) per segment. This is
+  the test of Hypothesis #4 and the discriminator that lets time residuals (#2/#3) be read cleanly.
+- Model/§8.3 (XP) notes and the M5 scope line for this check live in DESIGN.md / TODO.md.

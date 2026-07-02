@@ -17,6 +17,13 @@ real playthrough of this exact route. DESIGN.md §12 left as-is with a deviation
 | M3 | Task compiler + greedy seed, full zone | feasible 1→11 route end-to-end; total time in a plausible band vs references | not started |
 | M4 | SA router | ≥10% better than best greedy seed per sim; route overlay has no visual ping-ponging | not started |
 | M5 | Ground-truth calibration run | post-fit sim error ≤15% median per segment | not started |
+
+**M5 scope — XP-bar check (pre-registered):** the calibration run captures observed **xp-into-level**
+at every turn-in (`/played` screenshot with the XP bar in frame → `xp_into_level` column of
+`eval/runs/template.csv`) and grades it against the frozen `predicted_xp_into` column. This tests
+Hypothesis #4 (XP model exact) and is the **discriminator** that lets per-segment time residuals be
+attributed to travel/combat rather than to mis-costed XP shifting when level-ups land. Pre-registered
+in `eval/PREDICTIONS.md` before the run; see DESIGN §8.1 (calibration note) and §13.
 | M6 | Objective knobs | "fast" vs "HC-safe" produce visibly different routes; hand-written route-diff explanation | not started |
 | M7 | Vendor economy & upgrade detours (Teldrassil exit gate) | zero-hint "fast to 11" route buys the vendor ranged upgrade (feasible vs gold curve); ablating BUY is slower; predicted Δtime consistent with calibration pre/post kill-timing | not started |
 
