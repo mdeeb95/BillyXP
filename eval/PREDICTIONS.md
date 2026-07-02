@@ -57,6 +57,32 @@ Frozen per the M1 review freeze protocol. **No param or model changes after this
 
 <!-- HAND-MAINTAINED BELOW: forecasts & provenance (preserved across regen) -->
 
+## Freeze integrity
+
+- **sim-base commit:** `a4dc967` (the first commit that actually contains the simulator; the
+  Provenance header above records `1dea5f9`, the M0 commit, which does **not** contain the sim —
+  see incident note).
+- **verified at:** HEAD `8c25637e0ce9a1a7f40ff0c4b59b3d59ad69e338`, on **2026-07-02**.
+- **tag:** `m1-freeze` (annotated) points at the commit that adds this section.
+- **reproduction result:** re-simulating the frozen route through the committed sim reproduces the
+  on-record numbers **exactly** — total **6,621 s**, all **26** turn-in rows match (t within 0.05 min,
+  level and xp-into-level exact, 0 mismatches), route sha256 `321e3c35…` matches. Gate:
+  `uv run python -m eval.verify_freeze` (nonzero exit on any drift).
+
+### Incident note
+
+The M1 freeze was *declared* during the M1 review session but was **never pinned**: (a) the
+Provenance header recorded commit `1dea5f9` — the M0 commit, which predates and does not contain the
+sim — and flagged the working tree DIRTY at generation ("commit to pin"), and (b) no code was
+committed and no tag existed. So between the freeze declaration and **2026-07-02**, the "frozen" sim
+lived only in an uncommitted working tree; its integrity was covered **only** by the route sha256
+and the test suite, not by a pinned commit. The exact date of the original freeze declaration is
+itself not git-pinned — which is part of this incident. Discovered unpinned on 2026-07-02, verified
+to reproduce, and pinned via commit `a4dc967` (sim) + the `m1-freeze` tag on the commit carrying this
+section. History is left as-is (no squash/rewrite): rewriting it would erase the evidence that the
+freeze was unpinned for this interval, and an integrity ledger that edits away its own failures is
+worthless. The ledger records its own failures.
+
 ## Grading note
 
 The **total** duration grades the *forecasters* (expert prior vs sim). It does **not** attribute
