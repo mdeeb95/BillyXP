@@ -20,10 +20,13 @@ real playthrough of this exact route. DESIGN.md §12 left as-is with a deviation
 
 **M5 scope — XP-bar check (pre-registered):** the calibration run captures observed **xp-into-level**
 at every turn-in (`/played` screenshot with the XP bar in frame → `xp_into_level` column of
-`eval/runs/template.csv`) and grades it against the frozen `predicted_xp_into` column. This tests
-Hypothesis #4 (XP model exact) and is the **discriminator** that lets per-segment time residuals be
-attributed to travel/combat rather than to mis-costed XP shifting when level-ups land. Pre-registered
-in `eval/PREDICTIONS.md` before the run; see DESIGN §8.1 (calibration note) and §13.
+`eval/runs/template.csv`) and grades it against frozen predictions from the turn-in table /
+timeline via `eval/compare.py`. This tests Hypothesis #4 (verification) and is the **discriminator**
+that lets per-segment time residuals be attributed to travel/combat rather than to mis-costed XP
+shifting when level-ups land. Pre-registered in `eval/PREDICTIONS.md` before the run; see DESIGN
+§8.1 (calibration note) and §13. **Fit scope:** adds `engage_propensity` + en-route terms when the
+model exists; `k_zone` is fit on the **movement share only**, after subtracting inferred en-route
+combat time. `spec/001`.
 | M6 | Objective knobs | "fast" vs "HC-safe" produce visibly different routes; hand-written route-diff explanation | not started |
 | M7 | Vendor economy & upgrade detours (Teldrassil exit gate) | zero-hint "fast to 11" route buys the vendor ranged upgrade (feasible vs gold curve); ablating BUY is slower; predicted Δtime consistent with calibration pre/post kill-timing | not started |
 

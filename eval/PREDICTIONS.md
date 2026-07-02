@@ -98,6 +98,14 @@ tag does not move** and its numbers stay pinned by reproduction. Two refinements
   equality** (it is a living, append-only ledger during the freeze); its frozen numbers remain pinned
   by the reproduction-vs-recorded match, not by its bytes.
 
+### Incident #3 — relay provenance (2026-07-02, pre-run)
+
+Instruction block lost in chat→session relay; Hypothesis #4 pre-registration and ledger entry were
+**reconstructed at pin-time** without a prior spec — a provenance error. Corrected same day,
+pre-run: #4 re-attributed as a verification precondition (not a model-critic hypothesis); #5
+retransmitted; the `specs/` relay protocol (`spec/001`) is the remediation so future relayed
+blocks are pinned before execution.
+
 ## Grading note
 
 The **total** duration grades the *forecasters* (expert prior vs sim). It does **not** attribute
@@ -138,25 +146,36 @@ grade on **direction only**, against per-segment residuals, never on the total:
 - **Travel over-counted on short hops:** Euclidean×k charges separate area centroids as full hops
   on overlapping Shadowglen mob fields. Early Shadowglen is the worst case; Dolanaar's real
   distances should fit better.
-- **Hypothesis #4 — XP model is exact (pre-registered, quantitative, not just directional):** XP is
-  deterministic and DB-sourced (quest `RewXP` + the cited kill formula), so predicted **xp-into-level
-  at each turn-in** should match the real XP bar to within kill-count noise (a mob or two of slack
-  from over/under-killing). Unlike #1–#3 this is a *quantitative* pre-registration, gradeable
-  segment-by-segment. **Why it matters:** if xp-into-level matches but times don't, per-segment TIME
-  residuals attribute cleanly to the time model (travel/combat, #2/#3); if xp-into-level *diverges*
-  systematically, the kill-count / XP path is implicated **first**, because a mis-costed XP award
-  changes when level-ups land and thus every downstream segment. **Falsifier:** observed
-  xp-into-level departs from the predicted column by more than kill-count noise at a turn-in.
+- **Hypothesis #4 — Verification precondition — authored by session agent at pin-time absent spec;
+  retained on merit: XP accounting is exact (quantitative, not directional):** XP is deterministic
+  and DB-sourced (quest `RewXP` + the cited kill formula), so predicted **xp-into-level at each
+  turn-in** should match the real XP bar to within kill-count noise (a mob or two of slack from
+  over/under-killing). **Not a Claude model-critic hypothesis** — graded **pass/fail** as
+  verification, not direction. **Why it matters:** if xp-into-level matches but times don't,
+  per-segment TIME residuals attribute cleanly to the time model (travel/combat, #2/#3/#5); if
+  xp-into-level *diverges* systematically, the kill-count / XP path is implicated **first**,
+  because a mis-costed XP award changes when level-ups land and thus every downstream segment.
+  **Falsifier:** observed xp-into-level departs from the frozen prediction by more than kill-count
+  noise at a turn-in. Provenance correction: `spec/001`.
+- **Hypothesis #5 — En-route combat is unmodeled:** sim travel legs generate time but no XP or
+  combat. Predicted signature: actual level runs AHEAD of frozen checkpoints; per-segment excess XP
+  (ΔXP_actual − Σ quest XP that segment) correlates with travel distance through hostile corridors,
+  not with time at WORK areas. Related unmodeled XP: subzone discovery XP — check the dump for
+  exploration base-XP tables (no values from memory). *Attribution: Claude. Relay note: drafted
+  pre-run, lost in relay, retransmitted 2026-07-02 — still pre-run, still valid.* `spec/001`.
 
 ### Pre-registration — XP-bar capture (recorded before the run)
 
 Registered **before** the calibration run, so it counts:
 
-- The predicted **xp-into-level** at every turn-in is on record in two places (both frozen): the
-  *Predicted level at each turn-in* table above, and the `predicted_xp_into` column of
-  `eval/runs/template.csv`.
-- The run captures the **observed** value into the `xp_into_level` column; each turn-in `/played`
-  screenshot must be taken **with the XP bar in frame** (playsheet LOG prompts enforce this).
-- Grading: compare `xp_into_level` (observed) vs `predicted_xp_into` (frozen) per segment. This is
-  the test of Hypothesis #4 and the discriminator that lets time residuals (#2/#3) be read cleanly.
+- The predicted **xp-into-level** at every turn-in is on record in the frozen *Predicted level at
+  each turn-in* table above (and in `out/shadowglen_hunter_timeline.json`, joined by
+  `eval/compare.py`).
+- The run captures the **observed** value into the `xp_into_level` column of
+  `eval/runs/template.csv`; each turn-in `/played` screenshot must be taken **with the XP bar in
+  frame** (playsheet LOG prompts enforce this). Capture artifacts hold observables only — no
+  predicted columns.
+- Grading: `eval/compare.py` joins frozen `pred_xp_into` from the timeline vs observed
+  `xp_into_level` per segment. This is the test of Hypothesis #4 (verification) and the
+  discriminator that lets time residuals (#2/#3/#5) be read cleanly.
 - Model/§8.3 (XP) notes and the M5 scope line for this check live in DESIGN.md / TODO.md.

@@ -313,15 +313,14 @@ def render(timeline: list[dict[str, Any]], world: World, names: Names, with_time
                            f"(advisory)._" if last_mob else "")
             out.append(f"- **Expected level here: {cl.level_after}.**{contingency}")
             out.append(f"- `LOG: screenshot /played - segment {seg}` — **XP bar in frame** "
-                       "(records xp-into-level for the pre-registered XP check).")
+                       "(records xp-into-level for the XP-bar verification check).")
             qids = [int(_toks(str(e["step"]))[1]) for e in cl.entries
                     if str(e["step"]).startswith("TURNIN")]
             quests = ", ".join(world.quest(q).name for q in qids)
-            pred_xp = int(cl.entries[-1]["xp"])  # pre-registered predicted xp-into-level
             seg_quests.append((seg, qids))
-            # cols: segment, quests, expected_level, predicted_xp_into (pre-registered),
-            #       xp_into_level (observed, blank), played_hms, gold_copper, deaths, drinks, notes
-            csv_rows.append([str(seg), quests, str(cl.level_after), str(pred_xp),
+            # cols: segment, quests, expected_level, xp_into_level (observed, blank),
+            #       played_hms, gold_copper, deaths, drinks, notes
+            csv_rows.append([str(seg), quests, str(cl.level_after),
                              "", "", "", "", "", ""])
         if with_times:
             end_min = float(cl.entries[-1]["t1"]) / 60.0
@@ -450,7 +449,7 @@ def main() -> None:
         "# segment -> quest_ids (each quest keyed to its turn-in segment; union = full route set):",
     ]
     comment += [f"#   seg {seg:>2}: {','.join(str(q) for q in qs)}" for seg, qs in seg_quests]
-    header = ("segment,quests,expected_level,predicted_xp_into,xp_into_level,"
+    header = ("segment,quests,expected_level,xp_into_level,"
               "played_hms,gold_copper,deaths,drinks,notes")
     body = "\n".join(",".join(_csv(c) for c in row) for row in csv_rows)
     CSV.write_text("\n".join(comment) + "\n" + header + "\n" + body + "\n", encoding="utf-8")

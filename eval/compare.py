@@ -7,7 +7,8 @@ Grain: one segment per playsheet turn-in cluster (identical clustering to eval/p
 this module imports so the two can never drift). Each quest is keyed to the segment it is TURNED IN,
 so the union of per-segment quest sets is exactly the route's full quest set — asserted on BOTH
 sides (the frozen-timeline aggregation AND the DSL's own accept/turn-in set). Anchor hygiene: the
-per-segment predicted seconds live here (a comparison tool), never in the default playsheet.
+per-segment predicted seconds and predicted xp-into-level live here (a comparison tool), never in
+the capture CSV or default playsheet.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ import json
 
 def _segment_aggregation(world: World) -> list[dict[str, object]]:
     """Aggregate the frozen timeline into segments (turn-in clusters). Returns, per segment:
-    {seg, quest_ids (turned in), level_after, pred_seconds (bucketed sum over the segment)}."""
+    {seg, quest_ids, level_after, pred_seconds, pred_xp_into}."""
     data = json.loads(TIMELINE.read_text(encoding="utf-8"))
     clusters = cluster_timeline(data["timeline"])
     segs: list[dict[str, object]] = []
@@ -38,8 +39,9 @@ def _segment_aggregation(world: World) -> list[dict[str, object]]:
             seg += 1
             qids = [int(str(e["step"]).split()[1]) for e in cl.entries
                     if str(e["step"]).startswith("TURNIN")]
+            pred_xp = int(cl.entries[-1]["xp"])
             segs.append({"seg": seg, "quest_ids": qids, "level_after": cl.level_after,
-                         "pred_seconds": round(bucket, 1)})
+                         "pred_seconds": round(bucket, 1), "pred_xp_into": pred_xp})
             bucket = 0.0
     return segs
 
@@ -59,6 +61,21 @@ def _route_quest_set() -> tuple[set[int], set[int]]:
     return accepted, turnedin
 
 
+def _load_run_csv(path: Path) -> tuple[dict[int, str], dict[int, int]]:
+    """Return (segment -> played_hms, segment -> observed xp_into_level)."""
+    played: dict[int, str] = {}
+    xp: dict[int, int] = {}
+    with path.open(encoding="utf-8") as fh:
+        for row in csv.DictReader(r for r in fh if not r.startswith("#")):
+            seg = int(row["segment"])
+            if row.get("played_hms"):
+                played[seg] = row["played_hms"]
+            raw = (row.get("xp_into_level") or "").strip()
+            if raw:
+                xp[seg] = int(raw)
+    return played, xp
+
+
 def main() -> None:
     world = World()
     segs = _segment_aggregation(world)
@@ -72,23 +89,35 @@ def main() -> None:
           "timeline-aggregation union == route turn-in set == route accept set.")
 
     run_path = Path(sys.argv[1]) if len(sys.argv) > 1 else None
-    actual: dict[int, str] = {}
+    actual_time: dict[int, str] = {}
+    actual_xp: dict[int, int] = {}
     if run_path and run_path.exists():
-        with run_path.open(encoding="utf-8") as fh:
-            for row in csv.DictReader(r for r in fh if not r.startswith("#")):
-                if row.get("played_hms"):
-                    actual[int(row["segment"])] = row["played_hms"]
+        actual_time, actual_xp = _load_run_csv(run_path)
 
-    hdr = f"{'seg':>3} {'lvl':>3} {'pred_s':>8}  quests"
-    if actual:
-        hdr = f"{'seg':>3} {'lvl':>3} {'pred_s':>8} {'actual':>9}  quests"
+    has_time = bool(actual_time)
+    has_xp = bool(actual_xp)
+    hdr = f"{'seg':>3} {'lvl':>3} {'pred_s':>8}"
+    if has_xp:
+        hdr += f" {'pred_xp':>7} {'obs_xp':>7} {'Δxp':>5}"
+    if has_time:
+        hdr += f" {'actual':>9}"
+    hdr += "  quests"
     print(hdr)
     print("-" * len(hdr))
     for s in segs:
         qnames = ", ".join(world.quest(q).name for q in s["quest_ids"])  # type: ignore[union-attr]
+        seg_n = int(str(s["seg"]))
+        pred_xp = int(str(s["pred_xp_into"]))
         line = f"{s['seg']:>3} {s['level_after']:>3} {s['pred_seconds']:>8}"
-        if actual:
-            line += f" {actual.get(int(str(s['seg'])), '-'):>9}"
+        if has_xp:
+            obs = actual_xp.get(seg_n)
+            if obs is not None:
+                delta = obs - pred_xp
+                line += f" {pred_xp:>7} {obs:>7} {delta:>+5}"
+            else:
+                line += f" {pred_xp:>7} {'-':>7} {'-':>5}"
+        if has_time:
+            line += f" {actual_time.get(seg_n, '-'):>9}"
         print(f"{line}  {qnames}")
 
 
